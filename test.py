@@ -1,44 +1,30 @@
-
-from sentence_transformers import SentenceTransformer
-import faiss
+import yfinance as yf
+import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
-# Example documents
-documents = [
-    "The Eiffel Tower is in Paris.",
-    "The Great Wall of China is visible from space.",
-    "Python is a popular programming language."
+
+
+tickers = [
+    # Broad Market ETFs
+    "SPY"
 ]
 
-# Create embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
-embeddings = model.encode(documents)
+for ticker in tickers:
+    data = yf.download(ticker, start="2015-01-01", end="2024-01-01")
+    data["returns"] = data["Close"].pct_change()
+    data["zscore"] = (data["Close"] - data["Close"].rolling(5).mean()) / data["Close"].rolling(5).std()
+    data["signal"] = 0
+    data.loc[data["zscore"] < -1.5, "signal"] = 1
+    data.loc[data["zscore"] > 1.5, "signal"] = -1
+    data["strategy"] = data["signal"].shift(1) * data["returns"]
+    
+    
 
-# Build FAISS index
-index = faiss.IndexFlatL2(embeddings.shape[1])
-index.add(np.array(embeddings))
-
-
-query = "Where is the Eiffel Tower?"
-query_embedding = model.encode([query])
-D, I = index.search(np.array(query_embedding), k=2)  # Retrieve top 2
-
-retrieved_docs = [documents[i] for i in I[0]]
-print("Retrieved:", retrieved_docs)
-
-from transformers import pipeline
-
-# Concatenate retrieved docs and query
-context = " ".join(retrieved_docs)
-prompt = f"Context: {context}\nQuestion: {query}\nAnswer:"
-
-# Use a language model (e.g., GPT-2, GPT-3, or open-source LLM)
-generator = pipeline("text-generation", model="gpt2")
-result = generator(prompt, max_length=100)
-print(result[0]['generated_text'])
-
-
-
-
+# Cumulative performance
+(1 + data[["returns", "strategy"]]).cumprod().plot(figsize=(12,6))
+plt.title("SPY Buy & Hold vs. Mean Reversion Strategy")
+plt.savefig("strategy_plot.png")
+plt.show()
 
 
